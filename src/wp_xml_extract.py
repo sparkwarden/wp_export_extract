@@ -33,7 +33,7 @@ import copy
 import re
 
 from sparkwarden_lib import LF
-from sparkwarden_lib import Simple_Logger
+from sparkwarden_lib import Message_Writer
 from sparkwarden_lib import build_file_list
 from sparkwarden_lib import list_to_xlsx
 
@@ -41,41 +41,12 @@ from sparkwarden_lib import list_to_xlsx
 # 
 #-------------------------------------------------------------
 
-def to_str(s, str_len_max=10) -> str:
-
-	if s:
-		retstr = str(s).strip()
-	else:
-		retstr = '<None>'
-		
-	if str_len_max > 0:
-		if len(retstr) > str_len_max:
-			retstr = retstr[0:str_len_max]
-			
-	return retstr
-
-#------------------------------------------------------------
-# 
-#------------------------------------------------------------
-
-
-def wp_clean_text_tags(intext) -> str:
-	_tag_list = [
-		'<!-- wp:paragraph -->',
-		'<!-- /wp:paragraph -->',
-		'<p>',
-		'</p>',
-		'<br>',
-		"&nbsp;",
-		"&lt;"
-		]
-	_text = str(intext)
-	_text = re.sub(r'\[.*?\]', " ", _text)   # square brackets
-	_text = re.sub(r'\<.*?\>', " ", _text)   # tag start end 
-	for _tag in _tag_list:
-		_text = str(_text).replace(_tag,' ')
-	return _text
-
+def str_repeat(s:str, times=1):
+	_retstr = ''
+	for i in range(times):
+		_retstr += s
+	return _retstr
+	
 #------------------------------------------------------------
 # 
 #------------------------------------------------------------
@@ -89,43 +60,19 @@ class WP_Export:
 	node_list = []
 	srt_node_list = []
 	none_str =  '<none>'
+	msgr = None  # Message_Writer instance.
 	
-	def __init__(self, postno:int, xml_path:str):
+	def __init__(self, postno:int, item:dict, xml_path:str):
 		
-		_none = WP_Export.none_str
-		self.postno = postno
-		self.status = _none
-		self.link = _none
-		self.post_type = _none
-		self.content = _none
-		self.post_parent = 0
-		self.post_name = _none
-		self.creator = _none
-		self.title = _none
-		self.pub_date = _none
-		self.pub_date_time = None
-		self.post_id = 0
-		self.sort_key = _none
-		self.categories = []
-		self.tags = []
-		self.attachments = []
-		self.parameters = {}
-		self.xml_path = xml_path
-		if self not in WP_Export.node_list:
-			WP_Export.node_list.append(self)
-	
-	#-------------------------------------------------------------
-	# 
-	#-------------------------------------------------------------
-	
-	def set_data(self, item):
-		_none = WP_Export.none_str
+		_cls = WP_Export
+		
+		_none = _cls.none_str
 		self.item = item
 		self.status = item.get('wp:status',_none)
 		self.link = item.get('link',_none)
 		self.post_type = item.get('wp:post_type',_none)
 		_content = item.get('content:encoded',_none)
-		self.content = wp_clean_text_tags(_content)
+		self.content = self.wp_clean_text_tags(_content)
 		
 		self.post_name = item.get('wp:post_name',_none)
 		self.creator = item.get('dc:creator',_none)
@@ -139,9 +86,16 @@ class WP_Export:
 		_post_parent = item.get('wp:post_parent',0)
 		self.post_parent = int(_post_parent)
 		
-		self.attachment_url = item.get('wp:attachment_url','<none>')
-		_out_date, _ = WP_Export.to_pubdate(_pub_date,"%Y%m%d%H%M%S")
+		_out_date, _ = _cls.to_pubdate(_pub_date,"%Y%m%d%H%M%S")
 		self.sort_key = _out_date
+		
+		self.xml_path = xml_path
+		self.postno = postno
+		
+		self.categories = []
+		self.tags = []
+		self.attachments = []
+		
 		_cats_tags = item.get('category',[])
 		
 		for x in _cats_tags:
@@ -151,13 +105,18 @@ class WP_Export:
 				self.categories.append(_v)
 			else:
 				self.tags.append(_v)
-				
-			
+		
+		if self not in _cls.node_list:
+			_cls.node_list.append(self)
+	
 	#-------------------------------------------------------------
 	# 
 	#-------------------------------------------------------------
 	
 	def as_dict(self) -> dict:
+		"""
+		return dict representation of class instance.
+		"""
 		d = {}
 		d['postno']=self.postno
 		d['post_id'] = self.post_id
@@ -173,7 +132,6 @@ class WP_Export:
 		d['pub_date'] = self.pub_date
 		d['pub_datetime'] = self.pub_date_time
 		
-		d['attachment_url'] = self.attachment_url
 		d['categories'] = self.categories
 		d['tags'] = self.tags
 		d['sort_key'] = self.sort_key
@@ -185,14 +143,17 @@ class WP_Export:
 	
 	@staticmethod
 	def to_pubdate(indate, outfmt="%Y%m%d"):
-		retdt = None
+		"""
+		return reformatted publish date as string, datetime.
+		"""
+		retdt = datetime.datetime.now()
 		retdtstr = ''
 		try:
 			retdt = datetime.datetime.strptime(indate,'%a, %d %b %Y %H:%M:%S +0000')
 			retdtstr = retdt.strftime(outfmt)
 			
 		except ValueError as ex:
-			Simple_Logger.WriteLogArgsByName(ex)
+			print(ex)
 		return retdtstr, retdt
 		
 	#-------------------------------------------------------------
@@ -200,7 +161,11 @@ class WP_Export:
 	#-------------------------------------------------------------
 	
 	@classmethod
-	def setup(cls):
+	def setup(cls, msgr):
+		"""
+		setup node lists and message_writer.
+		"""
+		cls.msgr = msgr
 		cls.node_list.clear()
 		cls.srt_node_list.clear()
 		
@@ -210,6 +175,9 @@ class WP_Export:
 	
 	@classmethod
 	def set_srt_node_list(cls):
+		"""
+		sort the node list.
+		"""
 		_deep_node_list = copy.deepcopy(cls.node_list)
 		srt_node_list = \
 			sorted(_deep_node_list, key=attrgetter('sort_key'),reverse=True)
@@ -221,6 +189,9 @@ class WP_Export:
 	
 	@classmethod
 	def get_post_by_postno(cls,postno):
+		"""
+		return class instance by post number.
+		"""
 		post_list = [nd for nd in cls.node_list if nd.postno == postno]
 		retnode = None
 		if post_list:
@@ -234,6 +205,9 @@ class WP_Export:
 
 	@classmethod
 	def get_post_by_postid(cls,post_id):
+		"""
+		return class instance by post id.
+		"""
 		post_list = [nd for nd in cls.node_list if nd.post_id == post_id]
 		retnode = None
 		if post_list:
@@ -245,9 +219,36 @@ class WP_Export:
 	#---------------------------------------------------------------------
 	#
 	#---------------------------------------------------------------------
+	
+	def wp_clean_text_tags(self, intext) -> str:
+		"""
+		remove formatting tags from string.
+		"""
+		_tag_list = [
+			'<!-- wp:paragraph -->',
+			'<!-- /wp:paragraph -->',
+			'<p>',
+			'</p>',
+			'<br>',
+			"&nbsp;",
+			"&lt;"
+			]
+		_text = str(intext)
+		_text = re.sub(r'\[.*?\]', " ", _text)   # square brackets
+		_text = re.sub(r'\<.*?\>', " ", _text)   # tag start end 
+		for _tag in _tag_list:
+			_text = str(_text).replace(_tag,' ')
+		return _text
+					
+	#---------------------------------------------------------------------
+	#
+	#---------------------------------------------------------------------
 					
 	@classmethod
 	def attach_images_to_parents(cls):
+		"""
+		attach image filename(s) to each post instance.
+		"""
 		_attach_list = [a for a in cls.srt_node_list if a.status == 'inherit']
 		_publish_list = [p for p in cls.srt_node_list if p.status == 'publish']
 		for p in _publish_list:
@@ -269,8 +270,12 @@ class WP_Export:
 	#--------------------------------------------------------------------
 	
 	def as_str(self) -> str:
-		
-		retstr = f'{LF}<{self.__class__.__name__}> ' + \
+		"""
+		return str representation of class instance.
+		"""
+		_msg = str_repeat('*',80)
+		retstr = f'{LF}{_msg} {LF} ' + \
+		f'{LF}<{self.__class__.__name__}> ' + \
 		self.field_str('postno') + self.field_str('post_id') + \
 		self.field_str('status',LF) + self.field_str('post_type') + \
 		self.field_str('pub_date',LF) + self.field_str('sort_key') + \
@@ -299,6 +304,9 @@ class WP_Export:
 	#-------------------------------------------------------------
 	
 	def as_xlsx_row(self) -> list:
+		"""
+		return data elements to excel row list.
+		"""
 		_cats = ''
 		_tags = ''
 		for c in self.categories:
@@ -321,6 +329,9 @@ class WP_Export:
 		
 	@staticmethod
 	def as_xlsx_hdr() -> list:
+		""" 
+		return data element names as excel header list.
+		"""
 		return ['post no','post id','status','post type','pubdate','sort key','title','name','categories','tags','#images']
 		
 		
@@ -328,11 +339,6 @@ class WP_Export:
 	# 
 	#-------------------------------------------------------------
 	
-		
-	#---------------------------------------------------------------------
-	#
-	#---------------------------------------------------------------------
-		
 	def __repr__(self) -> str:
 		return self.as_str()
 	
@@ -340,12 +346,13 @@ class WP_Export:
 	# 
 	#-------------------------------------------------------------
 
-	
 	@classmethod
 	def report_and_xlsx(cls):
+		"""
+		generate report log, report excel file.
+		"""
 		
 		cls.set_srt_node_list()
-	
 		cls.attach_images_to_parents()
 		
 		publish_list = [p for p in cls.srt_node_list if p.status == 'publish']
@@ -353,10 +360,10 @@ class WP_Export:
 		topnode = publish_list[0]
 		_path = str(topnode.xml_path)
 		
-		Simple_Logger.writelog_by_name(f'{LF} Report for WP xml path: {_path}')
+		cls.msgr.write_msg(f'{LF} Report for WP xml path: {_path}')
 		
 		for p in publish_list:
-			Simple_Logger.writelog_by_name(f'{LF} {p.as_str()}')
+			cls.msgr.write_msg(f'{LF} {p.as_str()}')
 			
 		#------------------------------------------------------------
 		# 
@@ -374,37 +381,13 @@ class WP_Export:
 # 
 #------------------------------------------------------------
 
-def wp_clean(instr:str,replace_list):
-	_instr = str(instr)
-	for r in replace_list:
-		_instr.replace(r,' ')
-	return _instr
-	
-#-------------------------------------------------------------
-# 
-#------------------------------------------------------------
-
-'''
-def wp_pprint(item):
-	import pprint
-	
-	with open('pprint.log', 'a', encoding='utf-8') as out:
-		pprint.pprint(item, stream=out)
-'''
-
-#------------------------------------------------------------
-# 
-#------------------------------------------------------------
-
-def process_xml_file(path):
-	WP_Export.setup()
+def process_xml_file(path, msgr):
+	WP_Export.setup(msgr)
 	
 	item_list = []
 
 	with open(path,"r",encoding="utf-8") as fd:
 		doc = xmltodict.parse(fd.read())
-		
-		#wp_pprint(doc)
 		
 		item_list = doc['rss']['channel']['item']
 	
@@ -412,10 +395,8 @@ def process_xml_file(path):
 		
 		_post_type = item.get('wp:post_type','')
 		if _post_type in ['post', 'attachment']:
-		
-			WP_Export(item_no, path)
-			nd = WP_Export.get_post_by_postno(item_no)
-			nd.set_data(item)
+			wpe = WP_Export(item_no, item, path)
+			wpe.
 			
 	WP_Export.report_and_xlsx()
 
@@ -423,7 +404,7 @@ def process_xml_file(path):
 # 
 #-------------------------------------------------------------
 		
-def main():
+def main(msgr):
 	
 	#-------------------------------------------------------------
 	# 
@@ -434,7 +415,7 @@ def main():
 	xml_file_list = build_file_list(curdir, '*.xml')
 	
 	for xml_path in xml_file_list:
-		process_xml_file(xml_path)
+		process_xml_file(xml_path, msgr)
 	
 	#-------------------------------------------------------------
 	# 
@@ -451,30 +432,30 @@ if __name__ == "__main__":
 	# 
 	#-------------------------------------------------------------
 	
-	Simple_Logger.setup()
+	Message_Writer.setup()
 	
-	mylogprefix = str(pathlib.Path(__file__).stem)
+	fileprefix = str(pathlib.Path(__file__).stem)
 	
-	logr = Simple_Logger(name='root',prefix=mylogprefix)
+	msgr = Message_Writer(name='root',prefix=fileprefix)
 	
-	logr.writelog(f'{LF}program {__file__} started. {LF}')
-	
-	#-------------------------------------------------------------
-	# 
-	#-------------------------------------------------------------
-	
-	main()
+	msgr.write_msg(f'{LF}program {__file__} started. {LF}')
 	
 	#-------------------------------------------------------------
 	# 
 	#-------------------------------------------------------------
 	
-	logr.writelog(LF)
-	logr.writelog(f'{LF}program {__file__} completed. {LF}')
+	main(msgr)
 	
-	logr.closelog()
+	#-------------------------------------------------------------
+	# 
+	#-------------------------------------------------------------
 	
-	Simple_Logger.shutdown()
+	msgr.write_msg(LF)
+	msgr.write_msg(f'{LF}program {__file__} completed. {LF}')
+	
+	msgr.close_writer()
+	
+	Message_Writer.shutdown()
 	
 	#-------------------------------------------------------------
 	# 

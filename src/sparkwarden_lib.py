@@ -7,15 +7,15 @@ __version__ = '1.0'
 __date__ = '2024/04/28'
 
 """
-Description: Utility library containing simple logging, file list builder,
-and list to excel functions.
+Description: Utility library containing message writer, file list builder,
+and list-to-excel functions.
 
 Tested with Python 3.10
 Operating System: iPadOS 17.4
 iOS Python apps: Pythonista, a-Shell
 
 Required modules:
- openpyxl - generate excel report file.
+ openpyxl - to generate excel report file.
  
 """
 
@@ -24,7 +24,7 @@ Required modules:
 #---------------------------------------------------------------------
 
 
-__all__ = ['Simple_Logger','build_file_list','list_to_xlsx','LF']
+__all__ = ['Message_Writer','build_file_list','list_to_xlsx','LF']
 	
 
 #---------------------------------------------------------------------
@@ -44,22 +44,12 @@ LF = '\n'
 # 
 #-------------------------------------------------------------
 
-def get_output_path_with_dt(prefix='simple_logger', extention='.log',\
-	timefmt='%Y%m%d_%H%m%S%f'):
-	return prefix + '_' + datetime.datetime.now().strftime(timefmt) + extention
-			
-			
-#-------------------------------------------------------------
-# 
-#-------------------------------------------------------------
-
-
-class Simple_Logger:
+class Message_Writer:
 	"""
-	lightweight alternative for logging module 
+	Output Messages to File.
 	"""
 	
-	logger_list = []
+	node_list = []
 	
 	PRN_SCREEN_AND_FILE = 1
 	PRN_SCREEN_ONLY = 2
@@ -72,104 +62,108 @@ class Simple_Logger:
 	
 	def __init__(self, name, prefix, prn_flag=1):
 		
+		_cls = Message_Writer
+		
 		self.is_active = False
 		self.name = name
 		self.prn_flag = prn_flag
-		self.log_cnt = 0
+		self.msg_cnt = 0
 			
-		self.logfilepath = get_output_path_with_dt(prefix, '.log')
+		self.msgfilepath = _cls.get_output_path_with_dt(prefix)
 			
-		self.logbuf = io.StringIO()
+		self.msgbuf = io.StringIO()
 			
-		if self not in Simple_Logger.logger_list:
-			Simple_Logger.logger_list.append(self)
-			msg = f'\nLogger {self.name} starting. . .\n'
-			with open(self.logfilepath,'w',encoding='utf-8') as f:
+		if self not in _cls.node_list:
+			_cls.node_list.append(self)
+			msg = f'\nmessage writer [{self.name}] starting. . .\n'
+			with open(self.msgfilepath,'w',encoding='utf-8') as f:
 				f.write('')
-				self.writelog(msg)
+				self.write_msg(msg)
 		else:
-			raise Exception ('Logger already established')
+			raise Exception ('message writer already established')
 			
 		self.is_active = True
+		
+	#-------------------------------------------------------------
+	# 
+	#-------------------------------------------------------------
+	
+	@staticmethod
+	def get_output_path_with_dt(prefix='msgr', ext='.log',\
+		_timefmt='%Y%m%d_%H%m%S%f'):
+		_path = ''.join([prefix, '_', datetime.datetime.now().strftime(_timefmt), ext])
+		return _path
+	
 	#-------------------------------------------------------------
 	# 
 	#-------------------------------------------------------------
 	
 	@classmethod
-	def get_logger_by_name(cls, name):
+	def get_writer_by_name(cls, name):
 		
-		node_list = [nd for nd in cls.logger_list if nd.name == name]
+		_node_list = [nd for nd in cls.node_list if nd.name == name]
 		retnode = None
-		if len(node_list) > 0:
-			retnode = node_list[0]
+		if len(_node_list) > 0:
+			retnode = _node_list[0]
 		return retnode
 	
 	#-------------------------------------------------------------
 	# 
 	#-------------------------------------------------------------
 	
-	def writelogarg(self, arg):
+	def write_msg(self, *args):
 		"""
-		Write arg string to log buffer.  If log threshold reached,
-		flush buffer to log file.
+		write msg to buffer.
 		"""
-		if self.log_cnt >= Simple_Logger.PRN_FLUSH_LOG_THRESHOLD:
-			self.flushlog()
-		
-		arg_str = str(arg)
-		if self.prn_flag == Simple_Logger.PRN_SCREEN_AND_FILE:
-			self.logbuf.write(arg_str)
-			sys.stdout.write(arg_str)
-		elif self.prn_flag == Simple_Logger.PRN_SCREEN_ONLY:
-			sys.stdout.write(arg_str)
-		else:
-			self.logbuf.write(arg_str)
-		self.log_cnt+=1
-		
-	#-------------------------------------------------------------
-	# 
-	#-------------------------------------------------------------
-	
-	def writelog(self, *args):
+		_arg_str = ''
 		for arg in args:
-			arg_str = str(arg)
-			self.writelogarg(arg_str)
+			_arg_str += str(arg)
+		
+		_cls = Message_Writer
+		
+		if self.msg_cnt >= _cls.PRN_FLUSH_LOG_THRESHOLD:
+			self.flushbuf()
+		
+		if self.prn_flag == _cls.PRN_SCREEN_AND_FILE:
+			self.msgbuf.write(_arg_str)
+			sys.stdout.write(_arg_str)
+		elif self.prn_flag == _cls.PRN_SCREEN_ONLY:
+			sys.stdout.write(_arg_str)
+		else:
+			self.msgbuf.write(_arg_str)
+			
+		self.msg_cnt+=1
+		
 			
 	#-------------------------------------------------------------
 	# 
 	#-------------------------------------------------------------
 			
-	def flushlog(self):
-		with open(self.logfilepath,'a',encoding='utf-8') as f:
-			f.write(self.logbuf.getvalue())
-		self.log_cnt = 0
+	def flushbuf(self):
+		"""
+		write the msgbuf to file.
+		"""
+		with open(self.msgfilepath,'a',encoding='utf-8') as f:
+			f.write(self.msgbuf.getvalue())
+		self.msg_cnt = 0
 		
 	#-------------------------------------------------------------
 	# 
 	#-------------------------------------------------------------
 
-	def closelog(self):
-		self.writelog(f'\nLogger {self.name} closing. . .')
-		self.flushlog()
-		self.logbuf.close()
+	def close_writer(self):
+		self.write_msg(f'\nmessage writer [{self.name}] closing. . .')
+		self.flushbuf()
+		self.msgbuf.close()
 		self.is_active = False
 	
-	#-------------------------------------------------------------
-	# 
-	#------------------------------------------------------------
-	
-	@classmethod
-	def writelog_by_name(cls, *args, name='root'):
-		logr = cls.get_logger_by_name(name)
-		logr.writelog(*args)
-		
 	#-------------------------------------------------------------
 	# 
 	#------------------------------------------------------------
 		
 	@classmethod
 	def setup(cls):
-		cls.logger_list.clear()
+		cls.node_list.clear()
 		
 	#-------------------------------------------------------------
 	# 
@@ -177,9 +171,9 @@ class Simple_Logger:
 		
 	@classmethod
 	def shutdown(cls):
-		for lg in cls.logger_list:
+		for lg in cls.node_list:
 			if lg.is_active:
-				lg.closelog()
+				lg.close_writer()
 	
 			
 #-------------------------------------------------------------
@@ -232,7 +226,7 @@ def build_file_list(startdir:str=None, ptrnstr='*.*') -> list:
 # 
 #-------------------------------------------------------------
 		
-def main(logr):
+def main(msgr):
 	
 	#-------------------------------------------------------------
 	# 
@@ -242,7 +236,7 @@ def main(logr):
 	
 	file_list = build_file_list(curdir, '*.py')
 	
-	logr.writelog(f'{LF} {len(file_list)} .py files in {curdir} tree. {LF}')
+	msgr.write_msg(f'{LF} {len(file_list)} [.py] files in {curdir} dir tree. {LF}')
 	
 	#-------------------------------------------------------------
 	# 
@@ -259,32 +253,31 @@ if __name__ == "__main__":
 	# 
 	#-------------------------------------------------------------
 	
-	mylogprefix = str(pathlib.Path(__file__).stem)
+	fileprefix = str(pathlib.Path(__file__).stem)
 	
-	Simple_Logger.setup()
+	Message_Writer.setup()
 	
-	logr = Simple_Logger(name='root',prefix=mylogprefix)
+	msgr = Message_Writer(name='root',prefix=fileprefix)
 	
-	logr.writelog(f'{LF}program {__file__} started. {LF}')
-	
-	#-------------------------------------------------------------
-	# 
-	#-------------------------------------------------------------
-	
-	main(logr)
+	msgr.write_msg(f'{LF}program {__file__} started. {LF}')
 	
 	#-------------------------------------------------------------
 	# 
 	#-------------------------------------------------------------
 	
-	logr.writelog(LF)
-	logr.writelog(f'{LF}program {__file__} completed. {LF}')
-	
-	logr.closelog()
-	
-	Simple_Logger.shutdown()
+	main(msgr)
 	
 	#-------------------------------------------------------------
 	# 
 	#-------------------------------------------------------------
-
+	
+	msgr.write_msg(LF)
+	msgr.write_msg(f'{LF}program {__file__} completed. {LF}')
+	
+	msgr.close_writer()
+	
+	Message_Writer.shutdown()
+	
+	#-------------------------------------------------------------
+	# 
+	#-------------------------------------------------------------
