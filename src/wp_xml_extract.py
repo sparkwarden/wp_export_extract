@@ -51,6 +51,7 @@ def str_repeat(s:str, times=1):
 # 
 #------------------------------------------------------------
 
+
 class WP_Export:
 	"""
 	Wordpress export class.  Extracts data from each blog post,
@@ -89,12 +90,15 @@ class WP_Export:
 		_out_date, _ = _cls.to_pubdate(_pub_date,"%Y%m%d%H%M%S")
 		self.sort_key = _out_date
 		
+		self.attachment_url = item.get('wp:attachment_url',_none)
+		
 		self.xml_path = xml_path
 		self.postno = postno
 		
 		self.categories = []
 		self.tags = []
 		self.attachments = []
+		self.images = []
 		
 		_cats_tags = item.get('category',[])
 		
@@ -105,6 +109,24 @@ class WP_Export:
 				self.categories.append(_v)
 			else:
 				self.tags.append(_v)
+				
+		_postmeta = item.get('wp:postmeta',[])
+		
+		'''
+		OrderedDict([('wp:meta_key', '_thumbnail_id'), ('wp:meta_value', '5335')])]
+		'''
+		
+		_thumbnail_id = 0
+		
+		for x in _postmeta:
+			_k = x['wp:meta_key']
+			_v = x['wp:meta_value']
+			if _k == '_thumbnail_id':
+				_thumbnail_id = int(_v)
+				
+			
+		self.thumbnail_id = _thumbnail_id
+		#self.postmeta = _postmeta
 		
 		if self not in _cls.node_list:
 			_cls.node_list.append(self)
@@ -135,6 +157,8 @@ class WP_Export:
 		d['categories'] = self.categories
 		d['tags'] = self.tags
 		d['sort_key'] = self.sort_key
+		d['attachment_url'] = self.attachment_url
+		d['thumbnail_id'] = self.thumbnail_id
 		return d
 		
 	#-------------------------------------------------------------
@@ -252,8 +276,14 @@ class WP_Export:
 		_attach_list = [a for a in cls.srt_node_list if a.status == 'inherit']
 		_publish_list = [p for p in cls.srt_node_list if p.status == 'publish']
 		for p in _publish_list:
-			_img_list = [a for a in _attach_list if a.post_parent == p.post_id]
-			p.attachments = _img_list
+			_att_list = [a for a in _attach_list if a.post_parent == p.post_id]
+			_att_list += [a for a in _attach_list if a.post_id == p.thumbnail_id]
+			p.attachments = _att_list
+			_img_set = set()
+			for a in _att_list:
+				_img_set.add(a.attachment_url)
+			p.images = list(_img_set)
+			
 		
 	#---------------------------------------------------------------------
 	#
@@ -273,15 +303,16 @@ class WP_Export:
 		"""
 		return str representation of class instance.
 		"""
-		_msg = str_repeat('*',80)
-		retstr = f'{LF}{_msg} {LF} ' + \
+		retstr = f'{LF}{str_repeat("*",80)}{LF} ' + \
 		f'{LF}<{self.__class__.__name__}> ' + \
 		self.field_str('postno') + self.field_str('post_id') + \
 		self.field_str('status',LF) + self.field_str('post_type') + \
 		self.field_str('pub_date',LF) + self.field_str('sort_key') + \
 		self.field_str('title',LF) + \
 		self.field_str('post_name',LF) + \
-		self.field_str('content',LF)
+		self.field_str('attachment_url',LF) + \
+		self.field_str('thumbnail_id',LF)
+		#self.field_str('content',LF)
 		
 		_cats = f'{LF} categories: '
 		_tags = f'{LF} tags: '
@@ -295,7 +326,10 @@ class WP_Export:
 		retstr += _cats[:-2]
 		retstr += _tags[:-2]
 		
-		retstr += f'{LF} {len(self.attachments)} image(s) attached.'
+		retstr += f'{LF}{LF}{len(self.images)} image(s) attached. {LF}'
+		
+		for i in self.images:
+			retstr += f'{LF}  {i} '
 		
 		return retstr
 		
@@ -318,7 +352,7 @@ class WP_Export:
 		_cats = _cats[:-2]
 		_tags = _tags[:-2]
 		
-		_num_images = len(self.attachments)
+		_num_images = len(self.images)
 		return [self.postno,self.post_id,self.status,self.post_type,\
 		self.pub_date,self.sort_key,self.title,self.post_name,_cats,\
 		_tags,_num_images]
@@ -360,10 +394,25 @@ class WP_Export:
 		topnode = publish_list[0]
 		_path = str(topnode.xml_path)
 		
+		cls.msgr.write_msg(f'{LF}{LF}{str_repeat("*",80)}{LF}')
+		
 		cls.msgr.write_msg(f'{LF} Report for WP xml path: {_path}')
+		
+		cls.msgr.write_msg(f'{LF}{LF} Published Posts: {LF}')
 		
 		for p in publish_list:
 			cls.msgr.write_msg(f'{LF} {p.as_str()}')
+			
+		#------------------------------------------------------------
+		# 
+		#------------------------------------------------------------
+		
+		attach_list = [a for a in cls.srt_node_list if a.status == 'inherit']
+			
+		cls.msgr.write_msg(f'{LF}{LF} Attachments: {LF}')
+		
+		for a in attach_list:
+			cls.msgr.write_msg(f'{LF} {a.as_str()}')
 			
 		#------------------------------------------------------------
 		# 
@@ -379,7 +428,7 @@ class WP_Export:
 		
 #-------------------------------------------------------------
 # 
-#------------------------------------------------------------
+#-------------------------------------------------------------
 
 def process_xml_file(path, msgr):
 	WP_Export.setup(msgr)
@@ -395,8 +444,7 @@ def process_xml_file(path, msgr):
 		
 		_post_type = item.get('wp:post_type','')
 		if _post_type in ['post', 'attachment']:
-			wpe = WP_Export(item_no, item, path)
-			wpe.
+			WP_Export(item_no, item, path)
 			
 	WP_Export.report_and_xlsx()
 
@@ -417,14 +465,18 @@ def main(msgr):
 	for xml_path in xml_file_list:
 		process_xml_file(xml_path, msgr)
 	
-	#-------------------------------------------------------------
+	msgr.write_msg(f'{LF}{LF}{str_repeat("*",80)}')
+	msgr.write_msg(f'{LF}{LF}Totals:')
+	msgr.write_msg(f'{LF} {len(xml_file_list)} export xml files read.')
+	
+	#------------------------------------------------------------
 	# 
 	#------------------------------------------------------------
 	
 	
 #-------------------------------------------------------------
 # 
-#------------------------------------------------------------
+#-------------------------------------------------------------
 
 if __name__ == "__main__":
 	
